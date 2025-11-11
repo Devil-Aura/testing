@@ -1,7 +1,7 @@
 # config.py
 # Put your real values here before running.
 
-BOT_TOKEN = "PASTE_YOUR_BOT_TOKEN_HERE"
+BOT_TOKEN = ""
 OWNER_ID = 7626220527  # your Telegram user id
 BOT_USERNAME = "testlink000167_bot"  # without @
 MINIAPP_NAME = "linkprovider"
