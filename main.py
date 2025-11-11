@@ -1,21 +1,25 @@
 import asyncio
 import logging
-from pyrogram import Client, filters
+import os
+from pyrogram import Client, filters, idle
 from pyrogram.types import Message
 from tinydb import TinyDB, Query
-from datetime import datetime
 from aiohttp import web
-import os
 from config import API_ID, API_HASH, BOT_TOKEN, OWNER_ID, PORT
 
-# Logging setup
+# ========== Fix Telegram time sync issue ==========
+import time
+os.environ["TZ"] = "UTC"
+time.tzset()
+
+# ========== Logging setup ==========
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize bot
+# ========== Initialize bot ==========
 app = Client("linkprovider_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Database
+# ========== Database ==========
 db = TinyDB("database.json")
 redirects_table = db.table("redirects")
 admin_table = db.table("admins")
@@ -30,7 +34,7 @@ def is_admin(user_id: int) -> bool:
     return user_id in admins
 
 def create_redirect_token(url: str) -> str:
-    token = f"req_{abs(hash(url + str(datetime.now())))}"
+    token = f"req_{abs(hash(url + str(os.urandom(8))))}"
     redirects_table.insert({"token": token, "url": url})
     return token
 
@@ -45,12 +49,14 @@ async def start(client, message: Message):
     if not is_admin(user_id):
         await message.reply_text("🚫 Access Denied.\nThis bot is only for the owner and admins.")
         return
-    await message.reply_text("👋 Welcome to **LinkProvider Redirect Bot**\n\n"
-                             "Commands:\n"
-                             "• /create <url> - Create redirect link\n"
-                             "• /addadmin <id>\n"
-                             "• /removeadmin <id>\n"
-                             "• /backup - Manual backup")
+    await message.reply_text(
+        "👋 Welcome to **LinkProvider Redirect Bot**\n\n"
+        "Commands:\n"
+        "• /create <url> - Create redirect link\n"
+        "• /addadmin <id>\n"
+        "• /removeadmin <id>\n"
+        "• /backup - Manual backup"
+    )
 
 @app.on_message(filters.command("addadmin") & filters.user(OWNER_ID))
 async def add_admin(client, message: Message):
@@ -61,7 +67,7 @@ async def add_admin(client, message: Message):
         else:
             admin_table.insert({"user_id": new_admin})
             await message.reply_text(f"✅ Added {new_admin} as admin.")
-    except:
+    except Exception:
         await message.reply_text("Usage: /addadmin <user_id>")
 
 @app.on_message(filters.command("removeadmin") & filters.user(OWNER_ID))
@@ -70,7 +76,7 @@ async def remove_admin(client, message: Message):
         target = int(message.command[1])
         admin_table.remove(Query().user_id == target)
         await message.reply_text(f"🗑 Removed {target} from admins.")
-    except:
+    except Exception:
         await message.reply_text("Usage: /removeadmin <user_id>")
 
 @app.on_message(filters.command("create") & filters.private)
@@ -85,13 +91,18 @@ async def create_redirect(client, message: Message):
 
     url = message.text.split(" ", 1)[1].strip()
     token = create_redirect_token(url)
-    miniapp_link = f"https://t.me/testlink000167_bot/linkprovider?startapp={token}"
-    await message.reply_text(f"✅ Redirect created:\n\n🌐 **URL:** {url}\n🔗 **Mini App Link:** {miniapp_link}")
+    miniapp_link = f"https://t.me/{(await app.get_me()).username}/linkprovider?startapp={token}"
+    await message.reply_text(
+        f"✅ Redirect created:\n\n🌐 **URL:** {url}\n🔗 **Mini App Link:** {miniapp_link}"
+    )
 
 @app.on_message(filters.command("backup") & filters.user(OWNER_ID))
 async def manual_backup(client, message: Message):
-    await client.send_document(OWNER_ID, "database.json", caption="📦 Manual Backup File")
-    await message.reply_text("✅ Manual backup sent successfully.")
+    if os.path.exists("database.json"):
+        await client.send_document(OWNER_ID, "database.json", caption="📦 Manual Backup File")
+        await message.reply_text("✅ Manual backup sent successfully.")
+    else:
+        await message.reply_text("⚠️ No database file found to backup.")
 
 # ========== Web App for redirect ==========
 async def handle_webapp(request):
@@ -145,10 +156,11 @@ async def main():
     await site.start()
     logger.info(f"🌐 Web server started at http://0.0.0.0:{PORT}")
 
+    # Delay to avoid low msg_id issue
+    await asyncio.sleep(3)
     await app.start()
     logger.info("🤖 Bot started!")
     await idle()
 
 if __name__ == "__main__":
-    from pyrogram import idle
     asyncio.run(main())
